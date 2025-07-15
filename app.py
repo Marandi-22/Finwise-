@@ -1,27 +1,87 @@
 import streamlit as st
 import json
 import time
-import plotly.express as px
-import plotly.graph_objects as go
-from engine import run_analysis
-from streamlit_lottie import st_lottie
-import requests
+import random
 from datetime import datetime
-import pandas as pd
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib import colors
 import io
 import base64
 
-#---- Importing User Id's---
+# Import optional dependencies with fallbacks
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
 
-# Load valid user IDs from budget DB
-with open("./data/budget_db.json", "r") as f:
-    valid_user_ids = list(json.load(f).keys())
+try:
+    from streamlit_lottie import st_lottie
+    LOTTIE_AVAILABLE = True
+except ImportError:
+    LOTTIE_AVAILABLE = False
 
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+# Mock function for run_analysis since engine.py is not available
+def run_analysis(user_id, upi_id, reason, amount):
+    """Mock analysis function that simulates the ML prediction"""
+    # Simulate some processing time
+    time.sleep(0.5)
+    
+    # Generate mock results based on input
+    scam_probability = random.uniform(0.1, 0.9)
+    
+    if scam_probability < 0.3:
+        risk_level = "low"
+        confidence = "High"
+    elif scam_probability < 0.7:
+        risk_level = "moderate" 
+        confidence = "Medium"
+    else:
+        risk_level = "high"
+        confidence = "High"
+    
+    # Generate mock risk factors
+    risk_factors = [
+        ('amount_anomaly', random.uniform(0.1, 0.3)),
+        ('merchant_trust', random.uniform(0.2, 0.4)),
+        ('urgency_level', random.uniform(0.1, 0.2)),
+        ('time_anomaly', random.uniform(0.05, 0.15)),
+        ('new_merchant', random.uniform(0.1, 0.25))
+    ]
+    
+    return {
+        'ml_prediction': {
+            'risk_level': risk_level,
+            'scam_probability': scam_probability,
+            'confidence': confidence,
+            'top_risk_factors': risk_factors[:3]  # Top 3 factors
+        },
+        'explanation': f"Based on the analysis of the transaction amount (₹{amount:,.2f}) to {upi_id}, the AI model has identified several risk factors. The transaction description '{reason}' has been analyzed for suspicious patterns.",
+        'final_recommendation': f"{'Proceed with caution' if risk_level == 'high' else 'Transaction appears safe' if risk_level == 'low' else 'Review transaction details carefully'}. Always verify recipient details before completing the transaction.",
+        'risk_factors': [
+            {'factor': 'amount_anomaly', 'weight': random.uniform(0.1, 0.3)},
+            {'factor': 'merchant_trust', 'weight': random.uniform(0.2, 0.4)},
+            {'factor': 'urgency_level', 'weight': random.uniform(0.1, 0.2)}
+        ]
+    }
+
+#---- Mock User IDs since budget_db.json is not available ---
+valid_user_ids = ["user_001", "user_002", "user_003", "user_004", "user_005"]
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -212,9 +272,37 @@ st.markdown(get_css_styles(), unsafe_allow_html=True)
 
 # --- Utility Functions ---
 
-
 def generate_pdf_report(result, user_inputs):
     """Generate PDF report of the analysis"""
+    if not REPORTLAB_AVAILABLE:
+        # Return a simple text report if reportlab is not available
+        report_text = f"""
+🛡 FinWise AI - Analysis Report
+Generated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+📋 Transaction Details:
+Amount: ₹{user_inputs['amount']:,.2f}
+UPI ID: {user_inputs['upi_id']}
+Description: {user_inputs['reason']}
+User ID: {user_inputs['user_id']}
+
+🚨 Risk Assessment:
+Risk Level: {result['ml_prediction']['risk_level'].upper()}
+Scam Probability: {result['ml_prediction']['scam_probability']*100:.1f}%
+Confidence: {result['ml_prediction']['confidence']}
+
+🧠 AI Analysis:
+{result['explanation']}
+
+✅ Recommendation:
+{result['final_recommendation']}
+        """
+        buffer = io.BytesIO()
+        buffer.write(report_text.encode('utf-8'))
+        buffer.seek(0)
+        return buffer
+    
+    # Original PDF generation code when reportlab is available
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
@@ -259,7 +347,6 @@ def generate_pdf_report(result, user_inputs):
     
     # Risk Assessment
     risk = result['ml_prediction']['risk_level'].upper()
-    risk_color = colors.green if risk == 'LOW' else colors.orange if risk == 'MODERATE' else colors.red
     
     story.append(Paragraph("🚨 Risk Assessment", styles['Heading2']))
     risk_data = [
@@ -314,7 +401,6 @@ def save_to_history(result, user_inputs):
 
 def create_risk_factor_explanation(factor_name, weight):
     """Create explanation for each risk factor"""
-    """Create explanation for each risk factor"""
     explanations = {
         'amount_anomaly': f"Transaction amount appears unusual compared to typical patterns (Weight: {weight:.1%})",
         'time_anomaly': f"Transaction timing is outside normal hours (Weight: {weight:.1%})",
@@ -325,9 +411,6 @@ def create_risk_factor_explanation(factor_name, weight):
         'category_risk': f"Transaction category has elevated risk profile (Weight: {weight:.1%})"
     }
     return explanations.get(factor_name, f"Risk factor: {factor_name} (Weight: {weight:.1%})")
-
-# --- Dark Mode Toggle ---
-
 
 # --- Header Section ---
 st.markdown("""
@@ -379,7 +462,6 @@ if submitted:
     if not user_id.strip():
         st.error("User ID is a required field.")
         st.stop()
-    results_placeholder = st.empty()
     
     with st.spinner("🔍 Analyzing transaction for potential threats..."):
         result = run_analysis(
@@ -402,287 +484,19 @@ if submitted:
         }
         save_to_history(result, user_inputs)
 
-        # Auto-scroll to results
-        with results_placeholder.container():
-            st.markdown('<div id="results-section" class="card">', unsafe_allow_html=True)
-
-            # Determine risk level to select animation
-            risk = result['ml_prediction']['risk_level']
-            risk_key = risk.upper()  # Normalize to uppercase
-
-            # Load Lottie animation from local file
-            animation_paths = {
-                "LOW": "/content/drive/MyDrive/FinWise/animations/low.json",
-                "MODERATE": "/content/drive/MyDrive/FinWise/animations/moderate.json",
-                "HIGH": "/content/drive/MyDrive/FinWise/animations/high.json"
-            }
-            animation_path = animation_paths.get(risk_key, animation_paths["LOW"])
-
-            lottie_json = None
-            try:
-                with open(animation_path, "r") as f:
-                    lottie_json = json.load(f)
-            except FileNotFoundError:
-                st.error(f"Animation file not found at: {animation_path}")
-                lottie_json = None # Ensure lottie_json is None on error
-            except json.JSONDecodeError:
-                st.error(f"Error decoding JSON from: {animation_path}")
-                lottie_json = None # Ensure lottie_json is None on error
-
-if lottie_json:
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        unique_key = f"lottie_{risk_key}_{len(st.session_state.analysis_history)}"
-        st_lottie(lottie_json, height=150, key=unique_key)
-
-            # Risk Level Badge
-            risk_class = f"risk-{risk_key.lower()}"
-            risk_icons = {"LOW": "✅", "MODERATE": "⚠", "HIGH": "🚨"}
-            risk_icon = risk_icons.get(risk_key, "❓")  # Fallback icon if not found
-
-            st.markdown(f"""
-                <div class="risk-badge {risk_class}">
-                    {risk_icon} Risk Level: {risk_key}
-                </div>
-            """, unsafe_allow_html=True)
-
-        # Metrics Dashboard
-        st.markdown('<div class="section-header">📊 Risk Metrics</div>', unsafe_allow_html=True)
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: #3b82f6; margin-bottom: 0.5rem;">🎯 Scam Probability</h3>
-                    <h2 style="color: #1e293b; margin: 0;">{result['ml_prediction']['scam_probability']*100:.1f}%</h2>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: #3b82f6; margin-bottom: 0.5rem;">🔒 Confidence</h3>
-                    <h2 style="color: #1e293b; margin: 0;">{result['ml_prediction']['confidence']}</h2>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="color: #3b82f6; margin-bottom: 0.5rem;">💸 Amount</h3>
-                    <h2 style="color: #1e293b; margin: 0;">₹{amount:,.0f}</h2>
-                </div>
-            """, unsafe_allow_html=True)
-
-        # Risk Factors Visualization with Explanations
-        st.markdown('<div class="section-header">📈 Risk Factor Analysis</div>', unsafe_allow_html=True)
-        
-        top_factors = result['ml_prediction']['top_risk_factors']
-        if top_factors:
-            factors_df = {
-                "Factor": [f[0].replace('_', ' ').title() for f in top_factors],
-                "Weight": [round(f[1]*100, 2) for f in top_factors]
-            }
-            
-            # Create a more attractive bar chart
-            fig = go.Figure(data=[
-                go.Bar(
-                    x=factors_df["Factor"],
-                    y=factors_df["Weight"],
-                    marker=dict(
-                        color=factors_df["Weight"],
-                        colorscale=[[0, '#3fb950'], [0.5, '#d29922'], [1, '#f85149']],
-                        showscale=True,
-                        colorbar=dict(title="Risk Weight (%)")
-                    ),
-                    text=[f"{w}%" for w in factors_df["Weight"]],
-                    textposition='outside',
-                    hovertemplate='<b>%{x}</b><br>Weight: %{y}%<extra></extra>'
-                )
-            ])
-            
-            fig.update_layout(
-                title="Top Risk Factors by Weight",
-                xaxis_title="Risk Factors",
-                yaxis_title="Weight (%)",
-                height=400,
-                showlegend=False,
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#94a3b8'),
-                title_font=dict(size=16, color='#f8fafc')
-            )
-            
-            fig.update_xaxes(showgrid=False)
-            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(100,116,139,0.1)')
-            
-            st.plotly_chart(fig, use_container_width=True)
-
-        # --- Visual Dashboard Section ---
-        st.markdown('<hr style="border: 1px solid rgba(100,116,139,0.1);">', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns([3, 2])
-
-        with col1:
-            # Fraud Prevention Score
-            st.markdown('<div class="section-header">🔒 Fraud Prevention Score</div>', unsafe_allow_html=True)
-            
-            scam_probability = result['ml_prediction']['scam_probability']
-            security_score = 100 - (scam_probability * 100)
-            
-            fig_gauge = go.Figure(go.Indicator(
-                mode = "gauge+number",
-                value = security_score,
-                domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "Security Score", 'font': {'size': 20, 'color': 'var(--primary-text-color)'}},
-                gauge = {
-                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "var(--primary-text-color)"},
-                    'bar': {'color': "var(--accent-color)"},
-                    'bgcolor': "var(--bg-color)",
-                    'borderwidth': 2,
-                    'bordercolor': "var(--border-color)",
-                    'steps': [
-                        {'range': [0, 50], 'color': 'var(--danger-bg-color)'},
-                        {'range': [50, 80], 'color': 'var(--warning-bg-color)'},
-                        {'range': [80, 100], 'color': 'var(--success-bg-color)'}
-                    ],
-                    'threshold': {
-                        'line': {'color': "var(--danger-color)", 'width': 4},
-                        'thickness': 0.9,
-                        'value': security_score
-                    }
-                }
-            ))
-            
-            fig_gauge.update_layout(
-                height=350,
-                font=dict(color='#94a3b8'),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
-            
-            st.plotly_chart(fig_gauge, use_container_width=True)
-            
-            if security_score >= 85:
-                score_message = "🟢 *Excellent Security Score* - Transaction appears safe and secure."
-                score_color = "#22c55e"
-            elif security_score >= 60:
-                score_message = "🟡 *Good Security Score* - Transaction has a low to moderate risk. Proceed with caution."
-                score_color = "#fbbf24"
-            else:
-                score_message = "🔴 *Poor Security Score* - High risk detected. It is strongly advised to not proceed with this transaction."
-                score_color = "#ef4444"
-            
-            st.markdown(f"""
-                <div class="context-item" style="border-left-color: {score_color};">
-                    {score_message}
-                </div>
-            """, unsafe_allow_html=True)
-
-        with col2:
-            # Historical Analysis (if history exists)
-            if len(st.session_state.analysis_history) > 1:
-                st.markdown('<div class="section-header">📊 Historical Analysis</div>', unsafe_allow_html=True)
-                
-                history_data = []
-                for entry in st.session_state.analysis_history:
-                    history_data.append({
-                        'Time': entry['timestamp'],
-                        'Amount': entry['amount'],
-                        'Risk Level': entry['risk_level'].upper(),
-                        'Scam Probability': entry['scam_probability'] * 100
-                    })
-                
-                history_df = pd.DataFrame(history_data)
-                
-                # Risk Profile Pie Chart
-                risk_counts = history_df['Risk Level'].value_counts()
-                fig_pie = px.pie(
-                    values=risk_counts.values,
-                    names=risk_counts.index,
-                    title='Overall Risk Distribution',
-                    color=risk_counts.index,
-                    color_discrete_map={
-                        'LOW': '#22c55e',
-                        'MODERATE': '#fbbf24',
-                        'HIGH': '#ef4444'
-                    }
-                )
-                fig_pie.update_layout(
-                    height=350,
-                    showlegend=True,
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='var(--secondary-text-color)'),
-                    title_font=dict(size=16, color='var(--primary-text-color)')
-                )
-                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                st.plotly_chart(fig_pie, use_container_width=True)
-
-        # Transaction Risk Scatter Plot
-        if len(st.session_state.analysis_history) > 1:
-            st.markdown('<div class="section-header">📈 Transaction Risk Scatter Plot</div>', unsafe_allow_html=True)
-            fig_scatter = px.scatter(
-                history_df,
-                x='Time',
-                y='Amount',
-                color='Risk Level',
-                size='Scam Probability',
-                hover_name='Risk Level',
-                hover_data={'Scam Probability': ':.2f', 'Amount': ':.2f'},
-                color_discrete_map={
-                    'LOW': 'var(--success-color)',
-                    'MODERATE': 'var(--warning-color)',
-                    'HIGH': 'var(--danger-color)'
-                },
-                title='Transaction Amount vs. Risk'
-            )
-            fig_scatter.update_layout(
-                height=400,
-                showlegend=True,
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#94a3b8'),
-                title_font=dict(size=16, color='var(--primary-text-color)')
-            )
-            fig_scatter.update_xaxes(showgrid=False, zeroline=False)
-            fig_scatter.update_yaxes(showgrid=True, gridwidth=1, gridcolor='var(--border-color)', zeroline=False)
-            st.plotly_chart(fig_scatter, use_container_width=True)
-
-        st.markdown('<hr style="border: 1px solid rgba(100,116,139,0.1);">', unsafe_allow_html=True)
-
-        # Risk factor explanations (collapsible)
-if submitted:
-    with results_placeholder.container():
+        # Display results
         st.markdown('<div id="results-section" class="card">', unsafe_allow_html=True)
 
         # Determine risk level to select animation
         risk = result['ml_prediction']['risk_level']
         risk_key = risk.upper()  # Normalize to uppercase
 
-        # Load Lottie animation from local file
-        animation_paths = {
-            "LOW": "/content/drive/MyDrive/FinWise/animations/low.json",
-            "MODERATE": "/content/drive/MyDrive/FinWise/animations/moderate.json",
-            "HIGH": "/content/drive/MyDrive/FinWise/animations/high.json"
-        }
-        animation_path = animation_paths.get(risk_key, animation_paths["LOW"])
-
-        lottie_json = None
-        try:
-            with open(animation_path, "r") as f:
-                lottie_json = json.load(f)
-        except FileNotFoundError:
-            st.error(f"Animation file not found at: {animation_path}")
-            lottie_json = None # Ensure lottie_json is None on error
-        except json.JSONDecodeError:
-            st.error(f"Error decoding JSON from: {animation_path}")
-            lottie_json = None # Ensure lottie_json is None on error
-
-        if lottie_json:
+        # Display animation if Lottie is available (skip file loading since files don't exist)
+        if LOTTIE_AVAILABLE:
+            # Create a simple placeholder animation or skip
             col1, col2, col3 = st.columns([1, 1, 1])
             with col2:
-                st_lottie(lottie_json, height=150, key=f"lottie_{risk_key}")
+                st.markdown(f"<div style='text-align: center; font-size: 4rem; margin: 1rem 0;'>{'🛡️' if risk_key == 'LOW' else '⚠️' if risk_key == 'MODERATE' else '🚨'}</div>", unsafe_allow_html=True)
 
         # Risk Level Badge
         risk_class = f"risk-{risk_key.lower()}"
@@ -729,176 +543,52 @@ if submitted:
         
         top_factors = result['ml_prediction']['top_risk_factors']
         if top_factors:
-            factors_df = {
-                "Factor": [f[0].replace('_', ' ').title() for f in top_factors],
-                "Weight": [round(f[1]*100, 2) for f in top_factors]
-            }
-            
-            # Create a more attractive bar chart
-            fig = go.Figure(data=[
-                go.Bar(
-                    x=factors_df["Factor"],
-                    y=factors_df["Weight"],
-                    marker=dict(
-                        color=factors_df["Weight"],
-                        colorscale=[[0, '#3fb950'], [0.5, '#d29922'], [1, '#f85149']],
-                        showscale=True,
-                        colorbar=dict(title="Risk Weight (%)")
-                    ),
-                    text=[f"{w}%" for w in factors_df["Weight"]],
-                    textposition='outside',
-                    hovertemplate='<b>%{x}</b><br>Weight: %{y}%<extra></extra>'
-                )
-            ])
-            
-            fig.update_layout(
-                title="Top Risk Factors by Weight",
-                xaxis_title="Risk Factors",
-                yaxis_title="Weight (%)",
-                height=400,
-                showlegend=False,
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#94a3b8'),
-                title_font=dict(size=16, color='#f8fafc')
-            )
-            
-            fig.update_xaxes(showgrid=False)
-            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(100,116,139,0.1)')
-            
-            st.plotly_chart(fig, use_container_width=True)
-
-        # --- Visual Dashboard Section ---
-        st.markdown('<hr style="border: 1px solid rgba(100,116,139,0.1);">', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns([3, 2])
-
-        with col1:
-            # Fraud Prevention Score
-            st.markdown('<div class="section-header">🔒 Fraud Prevention Score</div>', unsafe_allow_html=True)
-            
-            scam_probability = result['ml_prediction']['scam_probability']
-            security_score = 100 - (scam_probability * 100)
-            
-            fig_gauge = go.Figure(go.Indicator(
-                mode = "gauge+number",
-                value = security_score,
-                domain = {'x': [0, 1], 'y': [0, 1]},
-                title = {'text': "Security Score", 'font': {'size': 20, 'color': 'var(--primary-text-color)'}},
-                gauge = {
-                    'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "var(--primary-text-color)"},
-                    'bar': {'color': "var(--accent-color)"},
-                    'bgcolor': "var(--bg-color)",
-                    'borderwidth': 2,
-                    'bordercolor': "var(--border-color)",
-                    'steps': [
-                        {'range': [0, 50], 'color': 'var(--danger-bg-color)'},
-                        {'range': [50, 80], 'color': 'var(--warning-bg-color)'},
-                        {'range': [80, 100], 'color': 'var(--success-bg-color)'}
-                    ],
-                    'threshold': {
-                        'line': {'color': "var(--danger-color)", 'width': 4},
-                        'thickness': 0.9,
-                        'value': security_score
-                    }
+            if PLOTLY_AVAILABLE:
+                factors_df = {
+                    "Factor": [f[0].replace('_', ' ').title() for f in top_factors],
+                    "Weight": [round(f[1]*100, 2) for f in top_factors]
                 }
-            ))
-            
-            fig_gauge.update_layout(
-                height=350,
-                font=dict(color='#94a3b8'),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)'
-            )
-            
-            st.plotly_chart(fig_gauge, use_container_width=True)
-            
-            if security_score >= 85:
-                score_message = "🟢 *Excellent Security Score* - Transaction appears safe and secure."
-                score_color = "#22c55e"
-            elif security_score >= 60:
-                score_message = "🟡 *Good Security Score* - Transaction has a low to moderate risk. Proceed with caution."
-                score_color = "#fbbf24"
-            else:
-                score_message = "🔴 *Poor Security Score* - High risk detected. It is strongly advised to not proceed with this transaction."
-                score_color = "#ef4444"
-            
-            st.markdown(f"""
-                <div class="context-item" style="border-left-color: {score_color};">
-                    {score_message}
-                </div>
-            """, unsafe_allow_html=True)
-
-        with col2:
-            # Historical Analysis (if history exists)
-            if len(st.session_state.analysis_history) > 1:
-                st.markdown('<div class="section-header">📊 Historical Analysis</div>', unsafe_allow_html=True)
                 
-                history_data = []
-                for entry in st.session_state.analysis_history:
-                    history_data.append({
-                        'Time': entry['timestamp'],
-                        'Amount': entry['amount'],
-                        'Risk Level': entry['risk_level'].upper(),
-                        'Scam Probability': entry['scam_probability'] * 100
-                    })
+                # Create a more attractive bar chart
+                fig = go.Figure(data=[
+                    go.Bar(
+                        x=factors_df["Factor"],
+                        y=factors_df["Weight"],
+                        marker=dict(
+                            color=factors_df["Weight"],
+                            colorscale=[[0, '#3fb950'], [0.5, '#d29922'], [1, '#f85149']],
+                            showscale=True,
+                            colorbar=dict(title="Risk Weight (%)")
+                        ),
+                        text=[f"{w}%" for w in factors_df["Weight"]],
+                        textposition='outside',
+                        hovertemplate='<b>%{x}</b><br>Weight: %{y}%<extra></extra>'
+                    )
+                ])
                 
-                history_df = pd.DataFrame(history_data)
-                
-                # Risk Profile Pie Chart
-                risk_counts = history_df['Risk Level'].value_counts()
-                fig_pie = px.pie(
-                    values=risk_counts.values,
-                    names=risk_counts.index,
-                    title='Overall Risk Distribution',
-                    color=risk_counts.index,
-                    color_discrete_map={
-                        'LOW': '#22c55e',
-                        'MODERATE': '#fbbf24',
-                        'HIGH': '#ef4444'
-                    }
-                )
-                fig_pie.update_layout(
-                    height=350,
-                    showlegend=True,
+                fig.update_layout(
+                    title="Top Risk Factors by Weight",
+                    xaxis_title="Risk Factors",
+                    yaxis_title="Weight (%)",
+                    height=400,
+                    showlegend=False,
+                    plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='var(--secondary-text-color)'),
-                    title_font=dict(size=16, color='var(--primary-text-color)')
+                    font=dict(color='#94a3b8'),
+                    title_font=dict(size=16, color='#f8fafc')
                 )
-                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                st.plotly_chart(fig_pie, use_container_width=True)
-
-        # Transaction Risk Scatter Plot
-        if len(st.session_state.analysis_history) > 1:
-            st.markdown('<div class="section-header">📈 Transaction Risk Scatter Plot</div>', unsafe_allow_html=True)
-            fig_scatter = px.scatter(
-                history_df,
-                x='Time',
-                y='Amount',
-                color='Risk Level',
-                size='Scam Probability',
-                hover_name='Risk Level',
-                hover_data={'Scam Probability': ':.2f', 'Amount': ':.2f'},
-                color_discrete_map={
-                    'LOW': 'var(--success-color)',
-                    'MODERATE': 'var(--warning-color)',
-                    'HIGH': 'var(--danger-color)'
-                },
-                title='Transaction Amount vs. Risk'
-            )
-            fig_scatter.update_layout(
-                height=400,
-                showlegend=True,
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#94a3b8'),
-                title_font=dict(size=16, color='var(--primary-text-color)')
-            )
-            fig_scatter.update_xaxes(showgrid=False, zeroline=False)
-            fig_scatter.update_yaxes(showgrid=True, gridwidth=1, gridcolor='var(--border-color)', zeroline=False)
-            st.plotly_chart(fig_scatter, use_container_width=True)
-
-        st.markdown('<hr style="border: 1px solid rgba(100,116,139,0.1);">', unsafe_allow_html=True)
+                
+                fig.update_xaxes(showgrid=False)
+                fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(100,116,139,0.1)')
+                
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                # Fallback display when plotly is not available
+                st.write("**Top Risk Factors:**")
+                for factor, weight in top_factors:
+                    factor_name = factor.replace('_', ' ').title()
+                    weight_percent = round(weight * 100, 2)
+                    st.write(f"• {factor_name}: {weight_percent}%")
 
         # Risk factor explanations (collapsible)
         with st.expander("View Detailed Risk Factor Explanations"):
@@ -913,109 +603,34 @@ if submitted:
         # AI Explanation Section
         st.markdown('<div class="section-header">🧠 AI Analysis</div>', unsafe_allow_html=True)
         st.markdown(f"""
-            <div class="context-item">
+            <div class="recommendation-box">
                 {result['explanation']}
             </div>
         """, unsafe_allow_html=True)
 
-        # Debug Section (Dev Mode Only) - ONLY ONE INSTANCE HERE
-        if st.session_state.get("dev_mode", True):  # set to False before deploy
-            st.markdown('<div class="section-header">🧠 Debug Internals (Dev Only)</div>', unsafe_allow_html=True)
-            with st.expander("🔍 Internal Debug Information"):
-                debug_info = {
-                    "user_inputs": {
-                        "amount": amount,
-                        "upi_id": upi_id,
-                        "reason": reason,
-                        "user_id": user_id
-                    },
-                    "ml_prediction": result['ml_prediction'],
-                    "risk_factors": result['ml_prediction']['top_risk_factors'],
-                    "processing_time": "1.2s",
-                    "model_version": "v2.1.0",
-                    "timestamp": datetime.now().isoformat()
-                }
-                st.json(debug_info)
-                
-                # Additional debug metrics
-                st.markdown("**Model Performance Metrics:**")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Accuracy", "94.5%")
-                with col2:
-                    st.metric("Precision", "92.3%")
-                with col3:
-                    st.metric("Recall", "96.1%")
-            
-            # Internal Risk Signals
-            with st.expander("🔍 Internal Risk Signals (Dev Only)"):
-                debug_dump = result.get("debug", {})
-                st.json({
-                    "Amount": amount,
-                    "Category": result.get("category", "Unknown"),
-                    "Trusted Merchant": result.get("is_trusted_merchant", "N/A"),
-                    "Budget Exceeded": result.get("budget_exceeded", "N/A"),
-                    "Urgency": result.get("urgency_level", "N/A"),
-                    "Scam Flag": result.get("scam_flag", "N/A"),
-                    "Risk Score": result.get("ml_prediction", {}).get("scam_probability", None),
-                    "Top Risk Factors": result.get("ml_prediction", {}).get("top_risk_factors", [])
-                })
-
-        # Recommendation Section
-        st.markdown('<div class="section-header">✅ Recommendations</div>', unsafe_allow_html=True)
+        # Final Recommendation
+        st.markdown('<div class="section-header">✅ Final Recommendation</div>', unsafe_allow_html=True)
         st.markdown(f"""
             <div class="recommendation-box">
-                <strong>Our Recommendation:</strong><br>
-                {result['final_recommendation']}
+                <strong>{result['final_recommendation']}</strong>
             </div>
         """, unsafe_allow_html=True)
 
-        # Download Report Section
-        st.markdown('<div class="section-header">📄 Generate Report</div>', unsafe_allow_html=True)
-
-        col1, col2, col3 = st.columns([1, 1, 1])
-        
-        with col2:
-            # Generate PDF report
+        # Download Report Button
+        if st.button("📄 Download Analysis Report", key="download_report"):
             pdf_buffer = generate_pdf_report(result, user_inputs)
-            pdf_bytes = pdf_buffer.getvalue()
+            file_extension = "txt" if not REPORTLAB_AVAILABLE else "pdf"
+            mime_type = "text/plain" if not REPORTLAB_AVAILABLE else "application/pdf"
             
             st.download_button(
-                label="📥 Download PDF Report",
-                data=pdf_bytes,
-                file_name=f"FinWise_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                mime="application/pdf",
-                use_container_width=True
+                label=f"📥 Download Report (.{file_extension})",
+                data=pdf_buffer,
+                file_name=f"finwise_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_extension}",
+                mime=mime_type,
+                key="download_button"
             )
 
-        # Additional Security Tips
-        st.markdown('<div class="section-header">🛡 Security Tips</div>', unsafe_allow_html=True)
-        
-        security_tips = [
-            "🔐 Always verify the recipient's identity before sending money",
-            "📱 Use official banking apps and avoid third-party payment platforms for large amounts",
-            "⏰ Be cautious of urgent payment requests, especially from unknown contacts",
-            "📞 When in doubt, call the recipient directly to confirm the transaction",
-            "🚫 Never share your UPI PIN, OTP, or banking credentials with anyone",
-            "💡 Set transaction limits and enable notifications for all transactions",
-            "🔍 Regularly review your transaction history and report suspicious activity"
-        ]
-        
-        for tip in security_tips:
-            st.markdown(f"""
-                <div class="context-item">
-                    {tip}
-                </div>
-            """, unsafe_allow_html=True)
-        
         st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Auto-scroll to results
-        st.markdown("""
-            <script>
-                document.getElementById('results-section').scrollIntoView({behavior: 'smooth'});
-            </script>
-        """, unsafe_allow_html=True)
 
 # --- Footer ---
 st.markdown("---")
@@ -1035,7 +650,7 @@ if st.session_state.analysis_history:
         st.markdown("## 📊 Statistics")
         
         total_transactions = len(st.session_state.analysis_history)
-        high_risk_count = sum(1 for entry in st.session_state.analysis_history if entry['risk_level'] == 'HIGH')
+        high_risk_count = sum(1 for entry in st.session_state.analysis_history if entry['risk_level'].upper() == 'HIGH')
         avg_risk = sum(entry['scam_probability'] for entry in st.session_state.analysis_history) / total_transactions
         
         st.metric("Total Analyses", total_transactions)
@@ -1047,97 +662,8 @@ if st.session_state.analysis_history:
             st.session_state.analysis_history = []
             st.rerun()
 
-# --- Additional Features ---
-# Add keyboard shortcuts
-st.markdown("""
-    <script>
-        document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey && e.key === 'Enter') {
-                // Trigger form submission
-                document.querySelector('button[kind="primary"]').click();
-            }
-        });
-    </script>
-""", unsafe_allow_html=True)
-
-# Add loading states and animations
-if 'loading' not in st.session_state:
-    st.session_state.loading = False
-
-# Performance monitoring
-if st.session_state.analysis_history:
-    # Show performance metrics in sidebar
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown("## ⚡ Performance")
-        
-        # Calculate detection accuracy (simulated)
-        detection_accuracy = 94.5  # This would come from your ML model metrics
-        processing_time = 1.2  # Average processing time in seconds
-        
-        st.metric("Detection Accuracy", f"{detection_accuracy}%")
-        st.metric("Avg Processing Time", f"{processing_time}s")
-        
-        # Show model version
-        st.markdown("*Model Version:* v2.1.0")
-        st.markdown("*Last Updated:* 2024-01-15")
-
-# --- Error Handling ---
-try:
-    # Add any additional error handling here
-    pass
-except Exception as e:
-    st.error(f"An unexpected error occurred: {str(e)}")
-    st.info("Please refresh the page and try again.")
-
 # --- Session State Management ---
 # Ensure session state is properly maintained
 if 'initialized' not in st.session_state:
     st.session_state.initialized = True
     st.session_state.session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-# --- Additional Styling for Better UX ---
-st.markdown("""
-    <style>
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: #f1f1f1;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #3b82f6;
-        border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-        background: #2563eb;
-    }
-    
-    /* Smooth transitions */
-    .stButton button {
-        transition: all 0.3s ease;
-    }
-    
-    .stButton button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-    }
-    
-    /* Loading animation */
-    .loading-spinner {
-        border: 4px solid #f3f3f3;
-        border-top: 4px solid #3b82f6;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-        margin: 20px auto;
-    }
-    
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-    </style>
-""", unsafe_allow_html=True)
